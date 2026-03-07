@@ -1,28 +1,39 @@
 # 🌟 旅途星辰 (TripStar) - AI 旅行智能体
 
 > **基于 HelloAgents 框架打造的多智能体协作文旅规划平台**
+<img width="1574" height="315" alt="git封面f" src="https://github.com/user-attachments/assets/4f03874d-ef3d-437c-a2f1-b0a5ab70b923" />
+<p align="center">
+  <img src="https://img.shields.io/badge/license-GPL--2.0-orange">
+  <img src="https://img.shields.io/badge/version-v0.1.0-green">
+  <img src="https://img.shields.io/badge/Docker-Build-blue?logo=docker">
+  <img src="https://img.shields.io/badge/python-3.10+-blue.svg">
+  <img src="https://img.shields.io/badge/vue-3.x-brightgreen.svg">
+  <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
+</p>
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
-![Vue](https://img.shields.io/badge/vue-3.x-brightgreen.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-teal.svg)
-
+> [!IMPORTANT]
+> 
+> 可直接魔撘平台已部署的项目：[旅途星辰 (TripStar) - AI 旅行智能体](https://modelscope.cn/studios/lcclxy/Journey-to-the-China)
+> 
+> 其中包括：旅行计划、景点地图、预算明细、每日行程：行程描述、交通方式、住宿推荐、景点安排（地址、游览时长、景点描述）、餐饮安排、天气信息、知识图谱可视化、沉浸式伴游 AI 问答......
 ## 📖 项目简介
 
-**旅途星辰 (TripStar)** 是一个创新的 AI 文旅智能体应用，旨在解决用户在规划旅行时面临的“信息过载”和“决策疲劳”问题。
+**旅途星辰 (TripStar)** 是一个创新的 AI 文旅智能体应用，基于 HelloAgents 框架打造的多智能体协作文旅规划平台，旨在解决用户在规划旅行时面临的“信息过载”和“决策疲劳”问题。
 
-有别于传统的旅游攻略网站，本项目采用了基于 **大语言模型 (LLM)** 和 **多智能体 (Multi-Agent)** 协作架构的创新模式。它能像一位经验丰富的人类旅行管家一样，全面考虑用户的个性化需求（如同行人、交通方式、住宿偏好、游玩节奏等），自动搜索实时航班/火车信息、查询当地天气、精选酒店并规划最优景点路线，最终输出一份结构化、可视化、可交互的高定旅行路书。
+有别于传统的旅游攻略网站，本项目采用了基于 **大语言模型 (LLM)** 和 **多智能体 (Multi-Agent)** 协作架构的创新模式。它能像一位经验丰富的人类旅行管家一样，全面考虑用户的个性化需求（偏好设置：交通方式、住宿风格、旅行兴趣、特殊需求等），自动搜索旅行信息、查询当地天气、精选酒店并规划最优景点路线，最终输出一份结构化、可视化、可交互的高定旅行路书。
 
 ### 核心亮点
 
-* **🤖 多智能体协作协同**: 采用分工明确的多个 Agent（如景点规划师、天气预报员、酒店预订专家），通过工作流 (Workflow) 协同完成复杂的旅行规划任务。
+* **🤖 多智能体协作协同**: 采用分工明确的多个 Agent（如景点规划师、天气预报员、酒店推荐专家），通过工作流 (Workflow) 协同完成复杂的旅行规划任务。
 * **⚡️ 并发执行优化**: 将互不依赖的子任务（如搜索景点、查询天气、精选酒店）利用 `asyncio.gather` 进行并发执行，将响应时间从串行的 $T_1+T_2+T_3$ 大幅缩短至 $\max(T_1, T_2, T_3)$。
-* **🔗 知识图谱可视化**: 将生成的行程数据实时转换为节点关系图（基于 ECharts的力导向图），直观展示“城市-天数-行程节点”的空间结构。
-* **💬 沉浸式伴游 AI 问答**: 在生成报告后，提供悬浮式 AI 问答窗口。AI 拥有完整行程的上下文记忆，用户可随时针对行程细节（如票价、交通、备选方案）进行追问。
+* **🔗 知识图谱可视化**: 将生成的行程数据实时转换为节点关系图（基于 ECharts的力导向图），直观展示“城市-天数-行程节点-预算”的空间结构。
+* **💬 沉浸式伴游 AI 问答**: 在生成报告后，提供悬浮式 AI 问答窗口。AI 拥有完整行程的上下文记忆，用户可随时针对行程细节（如票价、餐饮）进行追问。
 * **🛠️ MCP 工具调用能力**: 深度集成 Model Context Protocol (MCP)，通过 `uvx amap-mcp-server` 实时调用高德地图 API，获取精准真实的地理和 POI 数据。
 * **✨ 奢华暗黑玻璃拟物风**: 全新设计的暗黑系玻璃拟物化 (Dark Luxury Glassmorphism) 界面，提供极具沉浸感的高级视觉体验。
-
 ---
+> 举个例子要去中国杭州玩耍，只需要填写地点、日期、偏好设置，即可等待行程规划的结果
+<img width="1459" height="910" alt="image" src="https://github.com/user-attachments/assets/c6094a69-bafa-4a95-92e2-e22129b65aae" />
+
 
 ## 🏗️ 系统架构
 
@@ -109,7 +120,8 @@ graph TD
 * Python 3.10+
 * Node.js 18+
 * 大模型 API Key（推荐使用兼容 OpenAI 格式的服务商，如阿里云百炼、书生浦语）
-* 高德地图 Web SDK API Key 和 Web 服务 API Key (并在配置中启用 **安全密钥 JSCode**)
+* 高德地图 Web SDK API Key 和 Web 服务 API Key (并在配置中启用 **安全密钥 JSCode**)（[高德api](https://lbs.amap.com/)）
+* 图片抓取api（[Unsplash API](https://unsplash.com/developers)）
 * 系统已安装 `uv` 包管理器（用于 MCP 环境隔离）。
 
 ### 1. 后端启动
@@ -124,7 +136,8 @@ pip install -r requirements.txt
 # 复制配置文件并填入相应的 API KEY
 cp .env.example .env
 # [必填] LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_ID
-# [必填] AMAP_API_KEY (后端服务类密钥)
+# [必填] AMAP_API_KEY (高德地图web服务API)
+# [必填] Unsplash API Credentials（创建应用后的key）
 
 # 启动 FastAPI (推荐通过 uvicorn)
 uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
@@ -143,15 +156,15 @@ npm install
 
 # 配置前端环境变量，创建 .env 文件
 # 注意：VITE_AMAP_WEB_JS_KEY 必须是 Web前端 JS API 类型的 key
-# 另外，由于 JS API 2.0 政策要求，还需要在 index.html 注入你的安全密钥(securityJsCode)
+# 另外，由于 JS API 2.0 政策要求，**还需要在 index.html 注入你的安全密钥(securityJsCode)**
 
 # 启动 Vite 开发服务器
 npm run dev
 ```
 
-### 3. 生产环境 Docker / 模型社区快速部署
+### 3. 生产环境 Docker / 魔撘社区快速部署
 
-本项目已经适配 **魔搭社区 (ModelScope)** 等云端编程式创空间。
+本项目已经适配 **魔搭社区 (ModelScope)** 等云端编程式创空间，只需要将前后端env文件配置完成后，同时将ms_deploy.json和Dockerfile里面的key进行覆写，最后一步将整个文件放在魔撘平台创空间即可部署自己的服务啦。
 
 1. `Dockerfile`: 定义了由 Node 构建静态文件、Python 挂载启动的全栈二阶段构建镜像过程。已将 `uv` 和 `amap-mcp-server` 前置缓冲避免由于运行时下载造成的超时。
 2. `start.sh`: `gunicorn` + `uvicorn worker` 启动配置，推荐单 worker 运行以此避开异步轮询缓存击穿问题。
