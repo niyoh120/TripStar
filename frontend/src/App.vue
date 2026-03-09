@@ -1,11 +1,11 @@
 <template>
   <div id="app">
     <a-layout style="min-height: 100vh">
-      <a-layout-header v-if="!isLandingRoute" class="app-header">
+      <!-- <a-layout-header v-if="!isLandingRoute" class="app-header">
         <div class="header-inner">
           <div class="header-brand" @click="$router.push('/')">
             <div class="brand-logo">
-              <span class="logo-icon">🧭</span>
+              <span class="logo-icon"></span>
               <div class="logo-ring"></div>
             </div>
             <div class="brand-text-group">
@@ -30,7 +30,7 @@
             </div>
           </div>
         </div>
-      </a-layout-header>
+      </a-layout-header> -->
       <a-layout-content style="padding: 0">
         <router-view />
       </a-layout-content>

@@ -15,7 +15,6 @@
       <!-- Hero 区域 -->
       <div class="hero-section">
         <div class="hero-badge">
-          <span class="hero-badge-icon">✨</span>
           <span>{{ t('home.heroBadge') }}</span>
         </div>
         <h1 class="hero-title">
@@ -138,7 +137,6 @@
                     :class="{ active: formData.preferences.includes(item.value) }"
                     @click.prevent="togglePreference(item.value)"
                   >
-                    <span class="interest-icon">{{ item.icon }}</span>
                     <span class="interest-name">{{ t(item.labelKey) }}</span>
                   </label>
                 </a-checkbox-group>
@@ -174,9 +172,7 @@
               :disabled="loading"
             >
               <span v-if="!loading" class="btn-content">
-                <span class="btn-icon">🚀</span>
                 <span>{{ t('home.submit') }}</span>
-                <span class="btn-arrow">→</span>
               </span>
               <span v-else class="btn-content">
                 <span class="btn-spinner"></span>
@@ -214,12 +210,12 @@ const loadingProgress = ref(0)
 const loadingStatus = ref('')
 
 const interestOptions = [
-  { value: '历史文化', icon: '🏛️', labelKey: 'home.interests.history' },
-  { value: '自然风光', icon: '🏞️', labelKey: 'home.interests.nature' },
-  { value: '美食', icon: '🍜', labelKey: 'home.interests.food' },
-  { value: '购物', icon: '🛍️', labelKey: 'home.interests.shopping' },
-  { value: '艺术', icon: '🎨', labelKey: 'home.interests.art' },
-  { value: '休闲', icon: '☕', labelKey: 'home.interests.leisure' },
+  { value: '历史文化', labelKey: 'home.interests.history' },
+  { value: '自然风光', labelKey: 'home.interests.nature' },
+  { value: '美食', labelKey: 'home.interests.food' },
+  { value: '购物', labelKey: 'home.interests.shopping' },
+  { value: '艺术', labelKey: 'home.interests.art' },
+  { value: '休闲', labelKey: 'home.interests.leisure' },
 ]
 
 const formRules = computed(() => ({
@@ -449,10 +445,6 @@ const handleSubmit = async () => {
   font-weight: 500;
   margin-bottom: 28px;
   letter-spacing: 0.05em;
-}
-
-.hero-badge-icon {
-  font-size: 16px;
 }
 
 .hero-title {
@@ -701,10 +693,6 @@ const handleSubmit = async () => {
   box-shadow: 0 0 20px rgba(255, 179, 71, 0.15);
 }
 
-.interest-icon {
-  font-size: 28px;
-}
-
 .interest-name {
   font-size: 13px;
   font-weight: 500;
@@ -783,19 +771,6 @@ const handleSubmit = async () => {
   align-items: center;
   justify-content: center;
   gap: 12px;
-}
-
-.btn-icon {
-  font-size: 22px;
-}
-
-.btn-arrow {
-  font-size: 20px;
-  transition: transform 0.3s ease;
-}
-
-.submit-btn:hover .btn-arrow {
-  transform: translateX(4px);
 }
 
 .btn-spinner {
