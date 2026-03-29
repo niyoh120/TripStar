@@ -1673,27 +1673,44 @@ const restoreBudgetItem = (pendingItem: BudgetRestoreItem) => {
 const loadAttractionPhotos = async () => {
   if (!tripPlan.value) return
 
-  const promises: Promise<void>[] = []
   const apiBase = import.meta.env.VITE_API_BASE_URL ?? ''
+  const city = tripPlan.value.city
+  const uniqueNames = Array.from(
+    new Set(
+      tripPlan.value.days.flatMap((day) => day.attractions.map((attraction) => attraction.name))
+    )
+  ).filter((name) => name && !attractionPhotos.value[name])
 
-  tripPlan.value.days.forEach(day => {
-    day.attractions.forEach(attraction => {
-      const promise = fetch(`${apiBase}/api/poi/photo?name=${encodeURIComponent(attraction.name)}&city=${encodeURIComponent(tripPlan.value.city)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.success && data.data.photo_url) {
-            attractionPhotos.value[attraction.name] = data.data.photo_url
-          }
-        })
-        .catch(err => {
-          console.error(`获取${attraction.name}图片失败:`, err)
-        })
+  if (uniqueNames.length === 0) return
 
-      promises.push(promise)
-    })
-  })
+  const concurrencyLimit = 4
+  let currentIndex = 0
 
-  await Promise.all(promises)
+  const loadNextPhoto = async () => {
+    while (currentIndex < uniqueNames.length) {
+      const index = currentIndex
+      currentIndex += 1
+      const name = uniqueNames[index]
+
+      try {
+        const response = await fetch(
+          `${apiBase}/api/poi/photo?name=${encodeURIComponent(name)}&city=${encodeURIComponent(city)}`
+        )
+        const data = await response.json()
+        if (data.success && data.data.photo_url) {
+          attractionPhotos.value[name] = data.data.photo_url
+        }
+      } catch (err) {
+        console.error(`获取${name}图片失败:`, err)
+      }
+    }
+  }
+
+  const workers = Array.from(
+    { length: Math.min(concurrencyLimit, uniqueNames.length) },
+    () => loadNextPhoto()
+  )
+  await Promise.all(workers)
 }
 
 // 获取景点图片
@@ -4170,4 +4187,3 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
   display: none !important;
 }
 </style>
-
