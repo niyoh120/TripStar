@@ -22,7 +22,7 @@ def get_amap_mcp_tool() -> MCPTool:
         settings = get_settings()
         
         if not settings.vite_amap_web_key:
-            raise ValueError("高德地图API Key未配置,请在.env文件中设置VITE_AMAP_WEB_KEY")
+            raise ValueError("高德地图API Key未配置,请设置环境变量 VITE_AMAP_WEB_KEY（本地开发也可写入 .env）")
         
         # 创建MCP工具
         _amap_mcp_tool = MCPTool(
@@ -266,4 +266,3 @@ def get_amap_service() -> AmapService:
         _amap_service = AmapService()
     
     return _amap_service
-
