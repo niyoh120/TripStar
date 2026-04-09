@@ -2,7 +2,7 @@
 
 import json
 import asyncio
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Callable, Awaitable, Optional
 from hello_agents import SimpleAgent
 from hello_agents.tools import MCPTool
 from ..services.llm_service import get_llm
@@ -235,8 +235,26 @@ class MultiAgentTripPlanner:
             import traceback
             traceback.print_exc()
             raise
+
+    async def _emit_progress(
+        self,
+        progress_callback: Optional[Callable[[str, str, int], Awaitable[None] | None]],
+        stage: str,
+        message: str,
+        progress: int,
+    ) -> None:
+        """向上层回调任务进度（支持同步/异步回调）。"""
+        if progress_callback is None:
+            return
+        result = progress_callback(stage, message, progress)
+        if asyncio.iscoroutine(result):
+            await result
     
-    async def plan_trip(self, request: TripRequest) -> TripPlan:
+    async def plan_trip(
+        self,
+        request: TripRequest,
+        progress_callback: Optional[Callable[[str, str, int], Awaitable[None] | None]] = None
+    ) -> TripPlan:
         """
         使用多智能体协作生成旅行计划（并发优化版）
 
@@ -268,16 +286,19 @@ class MultiAgentTripPlanner:
 
             # 依次执行,避免多个线程同时启动 uvx 子进程导致资源竞争和超时
             print("  [1/3] 正在使用小红书服务搜索景点...")
+            await self._emit_progress(progress_callback, "attraction_search", "正在使用小红书搜索景点...", 30)
             from ..services.xhs_service import search_xhs_attractions
             keywords = request.preferences[0] if request.preferences else "景点"
             attraction_response = await asyncio.to_thread(search_xhs_attractions, request.city, keywords)
             print(f"📍 景点搜索结果: {attraction_response[:200]}...")
 
             print("  [2/3] 正在查询天气...")
+            await self._emit_progress(progress_callback, "weather_search", "正在查询天气信息...", 50)
             weather_response = await asyncio.to_thread(self.weather_agent.run, weather_query)
             print(f"🌤️  天气查询结果: {weather_response[:200]}...")
 
             print("  [3/3] 正在搜索酒店...")
+            await self._emit_progress(progress_callback, "hotel_search", "正在搜索酒店推荐...", 70)
             hotel_response = await asyncio.to_thread(self.hotel_agent.run, hotel_query)
             print(f"🏨 酒店搜索结果: {hotel_response[:200]}...")
 
@@ -285,6 +306,7 @@ class MultiAgentTripPlanner:
 
             # ========== 串行阶段: 步骤4 整合生成 ==========
             print("📋 步骤4: 生成行程计划...")
+            await self._emit_progress(progress_callback, "planning", "正在生成旅行计划...", 85)
             planner_query = self._build_planner_query(request, attraction_response, weather_response, hotel_response)
             planner_response = await asyncio.to_thread(self.planner_agent.run, planner_query)
             print(f"行程规划结果: {planner_response[:300]}...\n")
@@ -302,7 +324,7 @@ class MultiAgentTripPlanner:
             print(f"❌ 生成旅行计划失败: {str(e)}")
             import traceback
             traceback.print_exc()
-            return self._create_fallback_plan(request)
+            raise RuntimeError(f"旅行计划生成失败: {str(e)}") from e
     
     def _build_attraction_query(self, request: TripRequest) -> str:
         """构建景点搜索查询 - 直接包含工具调用"""
@@ -514,8 +536,7 @@ class MultiAgentTripPlanner:
             
         except Exception as e:
             print(f"⚠️  解析响应失败: {str(e)}")
-            print(f"   将使用备用方案生成计划")
-            return self._create_fallback_plan(request)
+            raise ValueError(f"行程 JSON 解析失败: {str(e)}") from e
     
     def _create_fallback_plan(self, request: TripRequest) -> TripPlan:
         """创建备用计划(当Agent失败时)"""

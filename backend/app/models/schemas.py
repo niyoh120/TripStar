@@ -189,6 +189,7 @@ class TripPlanResponse(BaseModel):
     """旅行计划响应"""
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
+    plan_id: Optional[str] = Field(default=None, description="计划ID（与后端任务ID对齐）")
     data: Optional[TripPlan] = Field(default=None, description="旅行计划数据")
     graph_data: Optional[KnowledgeGraphData] = Field(default=None, description="知识图谱数据")
 

@@ -90,8 +90,33 @@ export interface TripFormData {
 export interface TripPlanResponse {
   success: boolean
   message: string
+  plan_id?: string
   data?: TripPlan
   graph_data?: KnowledgeGraphData
+}
+
+export type TripTaskStatus = 'processing' | 'completed' | 'failed'
+
+export type TripTaskStage =
+  | 'submitted'
+  | 'initializing'
+  | 'attraction_search'
+  | 'weather_search'
+  | 'hotel_search'
+  | 'planning'
+  | 'graph_building'
+  | 'completed'
+  | 'failed'
+
+export interface TripTaskEvent {
+  task_id: string
+  plan_id: string
+  status: TripTaskStatus
+  stage: TripTaskStage
+  progress: number
+  message: string
+  error?: string
+  result?: TripPlanResponse
 }
 
 // ============ 知识图谱类型 ============

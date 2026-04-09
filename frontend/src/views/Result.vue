@@ -89,6 +89,9 @@
             <span class="overview-meta-item" style="color: #ffd5c6; font-weight: 700;">
               {{ t('result.dateRange', { start: tripPlan.start_date, end: tripPlan.end_date }) }}
             </span>
+            <span v-if="planId" class="overview-meta-item">
+              Plan ID: {{ planId }}
+            </span>
             <span v-if="tripPlan.overall_suggestions" class="overview-meta-item">
               {{ tripPlan.overall_suggestions }}
             </span>
@@ -565,7 +568,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { DownOutlined } from '@ant-design/icons-vue'
@@ -581,8 +584,10 @@ import AIChat from '@/components/AIChat.vue'
 import type { TripPlan, KnowledgeGraphData, GraphCategory, Attraction, Meal, Hotel, WeatherInfo } from '@/types'
 
 const router = useRouter()
+const route = useRoute()
 const { t, locale } = useI18n()
 const tripPlan = ref<TripPlan | null>(null)
+const planId = ref('')
 const editMode = ref(false)
 const originalPlan = ref<TripPlan | null>(null)
 const attractionPhotos = ref<Record<string, string>>({})
@@ -1135,6 +1140,11 @@ const buildKgBoundaryPositionMap = (
 }
 
 onMounted(async () => {
+  planId.value = String(route.query.plan_id || sessionStorage.getItem('planId') || '')
+  if (planId.value) {
+    sessionStorage.setItem('planId', planId.value)
+  }
+
   const data = sessionStorage.getItem('tripPlan')
   if (data) {
     tripPlan.value = JSON.parse(data)

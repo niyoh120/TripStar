@@ -238,7 +238,7 @@ import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import { generateTripPlan } from '@/services/api'
 import NavBar from '@/components/NavBar.vue'
-import type { TripFormData } from '@/types'
+import type { TripFormData, TripTaskEvent } from '@/types'
 import type { Dayjs } from 'dayjs'
 
 type LandingFormData = Omit<TripFormData, 'start_date' | 'end_date'> & {
@@ -257,7 +257,18 @@ const formRef = ref<HTMLElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 const panelHeight = ref<number | string>('auto')
 const fogEnabled = ref(true)
-const planCode = ref(`PLAN${Math.floor(100000 + Math.random() * 900000)}`)
+const planCode = ref('')
+
+const getStageStatusText = (stage: TripTaskEvent['stage']) => {
+  if (stage === 'submitted' || stage === 'initializing') return t('home.loading.initializing')
+  if (stage === 'attraction_search') return t('home.loading.searchingAttractions')
+  if (stage === 'weather_search') return t('home.loading.queryingWeather')
+  if (stage === 'hotel_search') return t('home.loading.recommendingHotels')
+  if (stage === 'planning') return t('home.loading.generatingPlan')
+  if (stage === 'graph_building') return t('home.loading.generatingPlan')
+  if (stage === 'completed') return t('home.loading.done')
+  return t('home.loading.initializing')
+}
 
 const interestOptions = [
   { value: '历史文化', labelKey: 'home.interests.history' },
@@ -371,21 +382,15 @@ const handleSubmit = async () => {
   }
 
   loading.value = true
-  loadingProgress.value = 0
+  loadingProgress.value = 5
   loadingStatus.value = t('home.loading.initializing')
-  planCode.value = `${Math.floor(1000 + Math.random() * 9000)}`
-
-  const progressInterval = setInterval(() => {
-    if (loadingProgress.value < 90) {
-      loadingProgress.value += 10
-      if (loadingProgress.value <= 30) loadingStatus.value = t('home.loading.searchingAttractions')
-      else if (loadingProgress.value <= 50) loadingStatus.value = t('home.loading.queryingWeather')
-      else if (loadingProgress.value <= 70) loadingStatus.value = t('home.loading.recommendingHotels')
-      else loadingStatus.value = t('home.loading.generatingPlan')
-    }
-  }, 1000)
+  planCode.value = ''
 
   try {
+    sessionStorage.removeItem('tripPlan')
+    sessionStorage.removeItem('graphData')
+    sessionStorage.removeItem('planId')
+
     const requestData: TripFormData = {
       city: formData.city,
       start_date: formData.start_date.format('YYYY-MM-DD'),
@@ -397,21 +402,47 @@ const handleSubmit = async () => {
       free_text_input: formData.free_text_input,
     }
 
-    const response = await generateTripPlan(requestData)
-    clearInterval(progressInterval)
+    const response = await generateTripPlan(requestData, {
+      onTaskCreated: (task) => {
+        planCode.value = task.plan_id || task.task_id
+        loadingProgress.value = 5
+        loadingStatus.value = t('home.loading.initializing')
+      },
+      onTaskEvent: (event) => {
+        if (event.plan_id) planCode.value = event.plan_id
+        if (Number.isFinite(event.progress)) {
+          loadingProgress.value = Math.max(0, Math.min(100, event.progress))
+        }
+        loadingStatus.value = event.message || getStageStatusText(event.stage)
+      }
+    })
+
     loadingProgress.value = 100
     loadingStatus.value = t('home.loading.done')
 
     if (response.success && response.data) {
+      const planId = response.plan_id || planCode.value
       sessionStorage.setItem('tripPlan', JSON.stringify(response.data))
       if (response.graph_data) sessionStorage.setItem('graphData', JSON.stringify(response.graph_data))
+      if (planId) sessionStorage.setItem('planId', planId)
       message.success(t('home.messages.generateSuccess'))
-      setTimeout(() => router.push('/result'), 500)
+      setTimeout(() => {
+        if (planId) {
+          router.push({ path: '/result', query: { plan_id: planId } })
+        } else {
+          router.push('/result')
+        }
+      }, 500)
     } else {
+      sessionStorage.removeItem('tripPlan')
+      sessionStorage.removeItem('graphData')
+      sessionStorage.removeItem('planId')
       message.error(response.message || t('home.messages.generateFailed'))
     }
   } catch (error: any) {
-    clearInterval(progressInterval)
+    sessionStorage.removeItem('tripPlan')
+    sessionStorage.removeItem('graphData')
+    sessionStorage.removeItem('planId')
     message.error(error.message || t('home.messages.generateRetry'))
   } finally {
     setTimeout(() => {

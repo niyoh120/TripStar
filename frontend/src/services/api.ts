@@ -1,9 +1,23 @@
 import axios from 'axios'
-import type { TripFormData, TripPlanResponse } from '@/types'
+import type { TripFormData, TripPlanResponse, TripTaskEvent } from '@/types'
 import { i18n } from '@/i18n'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 const t = i18n.global.t
+const WS_BASE_URL = API_BASE_URL.replace(/^http/i, 'ws').replace(/\/+$/, '')
+
+interface SubmitTripPlanResponse {
+  task_id: string
+  plan_id: string
+  status: 'processing'
+  ws_url: string
+  message: string
+}
+
+interface GenerateTripPlanOptions {
+  onTaskCreated?: (task: SubmitTripPlanResponse) => void
+  onTaskEvent?: (event: TripTaskEvent) => void
+}
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -40,7 +54,7 @@ apiClient.interceptors.response.use(
 /**
  * 提交旅行规划任务（立即返回 task_id）
  */
-export async function submitTripPlan(formData: TripFormData): Promise<{ task_id: string }> {
+export async function submitTripPlan(formData: TripFormData): Promise<SubmitTripPlanResponse> {
   try {
     const response = await apiClient.post('/api/trip/plan', formData)
     return response.data
@@ -66,28 +80,64 @@ export async function pollTaskStatus(taskId: string): Promise<any> {
 /**
  * 生成旅行计划（兼容旧接口，内部使用轮询）
  */
-export async function generateTripPlan(formData: TripFormData): Promise<TripPlanResponse> {
-  // 1. 提交任务
-  const { task_id } = await submitTripPlan(formData)
+export async function generateTripPlan(
+  formData: TripFormData,
+  options?: GenerateTripPlanOptions
+): Promise<TripPlanResponse> {
+  const task = await submitTripPlan(formData)
+  options?.onTaskCreated?.(task)
 
-  // 2. 轮询结果（每3秒）
+  const wsUrl = `${WS_BASE_URL}${task.ws_url}`
+
   return new Promise((resolve, reject) => {
-    const interval = setInterval(async () => {
+    let settled = false
+    const socket = new WebSocket(wsUrl)
+
+    const safeResolve = (value: TripPlanResponse) => {
+      if (settled) return
+      settled = true
+      socket.close()
+      resolve(value)
+    }
+
+    const safeReject = (error: unknown) => {
+      if (settled) return
+      settled = true
+      socket.close()
+      reject(error)
+    }
+
+    socket.onmessage = (ev) => {
       try {
-        const status = await pollTaskStatus(task_id)
-        if (status.status === 'completed') {
-          clearInterval(interval)
-          resolve(status.result)
-        } else if (status.status === 'failed') {
-          clearInterval(interval)
-          reject(new Error(status.error || t('api.generateTripPlanFailed')))
+        const event = JSON.parse(ev.data) as TripTaskEvent
+        options?.onTaskEvent?.(event)
+
+        if (event.status === 'completed') {
+          if (!event.result) {
+            safeReject(new Error(t('api.generateTripPlanFailed')))
+            return
+          }
+          safeResolve(event.result)
+          return
         }
-        // status === 'processing' → 继续轮询
+
+        if (event.status === 'failed') {
+          safeReject(new Error(event.error || event.message || t('api.generateTripPlanFailed')))
+        }
       } catch (err) {
-        clearInterval(interval)
-        reject(err)
+        safeReject(err)
       }
-    }, 3000)
+    }
+
+    socket.onerror = () => {
+      safeReject(new Error(t('api.generateTripPlanFailed')))
+    }
+
+    socket.onclose = () => {
+      if (!settled) {
+        safeReject(new Error(t('api.generateTripPlanFailed')))
+      }
+    }
   })
 }
 
