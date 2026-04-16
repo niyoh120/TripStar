@@ -139,7 +139,7 @@ The frontend renders dynamic Vue structures recursively by reading JSON data:
 * Python 3.10+
 * Node.js 18+
 * Large Model API Key (OpenAI-compatible endpoints highly recommended, e.g., Doubao)
-* AMap Keys (Web Service & Web JS API) with **Security JSCode configured in `index.html`** or Google Maps APIs (Places, Geocoding, Routes, Weather).
+* AMap Keys (Web Service & Web JS API) with **Security JSCode configured in `index.html`** or Google Maps APIs. If using [Google Maps](https://developers.google.com/maps/apis-by-platform), you must enable: **Geocoding API, Places API (New), Directions API, Maps JavaScript API, and Weather API** in Google Cloud Console, and an active billing account is strictly required.
 * Xiaohongshu Cookie (Retrieve from browser dev tools after logging in on Web)
 * The `uv` package manager
 
