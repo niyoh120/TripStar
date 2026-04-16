@@ -224,13 +224,16 @@ def _geocode_amap_raw(address: str, city: str) -> dict:
     return {"longitude": 116.397128, "latitude": 39.916527}
 
 
-def geocode_amap(address: str, city: str) -> dict:
+def geocode_amap(address: str, city: str, *, name_zh: str = "", name_en: str = "") -> dict:
     """统一地理编码入口 — 自动路由到 Google / 高德。
 
-    内部通过 map_dispatcher 判断当前活跃供应商。
+    内部通过 map_dispatcher 判断当前活跃供应商，
+    并根据供应商自动选择最合适语言的地址进行编码：
+    - Google Maps: 优先使用英文名称 (name_en)
+    - 高德地图: 优先使用中文名称 (name_zh)
     """
     from .map_dispatcher import geocode_unified
-    return geocode_unified(address, city)
+    return geocode_unified(address, city, address_zh=name_zh, address_en=name_en)
 
 
 # ============ SSR 降级方案（备用） ============
@@ -323,10 +326,11 @@ def search_xhs_attractions(city: str, keywords: str, language: str = "zh") -> st
     if _lang != "zh" and _lang in _lang_names:
         translation_instruction = f"""
 **极其重要的翻译要求:**
-目标语言为 {_lang_names[_lang]}。你必须将所有提取结果中的 "name", "reason", "reservation_tips" 字段的内容翻译为 {_lang_names[_lang]}。
-- "name" 字段必须使用景点在当地的官方英文/本地名称（例如 "故宫博物院" → "The Palace Museum", "帝国大厦" → "Empire State Building"）。这对后续地理编码至关重要！
+目标语言为 {_lang_names[_lang]}。你必须将提取结果中的 "name", "reason", "reservation_tips" 字段的内容翻译为 {_lang_names[_lang]}。
+- "name" 字段使用目标语言 {_lang_names[_lang]} 的景点名称（例如中文"故宫博物院" → English "The Palace Museum"）。
 - "reason" 和 "reservation_tips" 也必须翻译为 {_lang_names[_lang]}。
 - "duration" 和 "reservation_required" 保持原始数值/布尔值不变。
+- **注意**: "name_zh" 必须始终保持简体中文名称，"name_en" 必须始终保持英文名称，不受目标语言影响！
 - 严格保持 JSON schema 格式不变！
 """
     else:
@@ -337,19 +341,26 @@ def search_xhs_attractions(city: str, keywords: str, language: str = "zh") -> st
 要求返回严格的 JSON 数组格式(哪怕只提取到了1个)，切勿返回除了JSON以外的任何冗余 markdown 文字！
 {translation_instruction}
 数组中每个对象必须包含以下字段:
-"name": 景点官方名称(必须能地理定位到)
+"name": 景点官方名称(用于前端展示，按目标语言填写；若目标语言为中文则与 name_zh 相同)
+"name_zh": 景点的中文简体名称(必须是简体中文，例如 "故宫博物院"。此字段始终为中文，不受目标语言影响)
+"name_en": 景点的英文名称(必须是英文，使用景点在国际上通用的官方英文名，例如 "The Palace Museum"。此字段始终为英文，不受目标语言影响)
 "reason": 小红书用户的真实评价/避坑指南
 "duration": 游玩时长(数字, 分钟)
 "reservation_required": 是否需要提前预约(布尔值 true/false)。请根据游记中提到的"需要预约"、"提前预约"、"抢票"、"约满"、"官方预约"等关键词判断，如果游记未提及则默认为 false
 "reservation_tips": 预约相关提示(字符串)。如果需要预约，请提取预约渠道、提前天数等具体信息；如果不需要预约则填空字符串
+
+**地理编码辅助字段说明:**
+name_zh 和 name_en 将分别用于不同地图服务商(高德/Google)的地理定位，请务必准确填写！
+- name_zh 必须是中文简体名称
+- name_en 必须是英文名称，优先使用国际通用的官方英文名
 
 游记杂文内容如下:
 {combined_text}
 
 JSON 返回示例:
 [
-  {{"name": "故宫博物院", "reason": "必去打卡，建议走中轴线。", "duration": 240, "reservation_required": true, "reservation_tips": "需要提前7天在故宫官网或微信小程序预约，每日限流8万人"}},
-  {{"name": "老君山金顶", "reason": "网红打卡点，夜景绝美，必须坐索道上山。", "duration": 180, "reservation_required": false, "reservation_tips": ""}}
+  {{"name": "故宫博物院", "name_zh": "故宫博物院", "name_en": "The Palace Museum", "reason": "必去打卡，建议走中轴线。", "duration": 240, "reservation_required": true, "reservation_tips": "需要提前7天在故宫官网或微信小程序预约，每日限流8万人"}},
+  {{"name": "老君山金顶", "name_zh": "老君山金顶", "name_en": "Laojun Mountain Golden Summit", "reason": "网红打卡点，夜景绝美，必须坐索道上山。", "duration": 180, "reservation_required": false, "reservation_tips": ""}}
 ]
 """
     try:
@@ -371,8 +382,10 @@ JSON 返回示例:
             name = item.get("name", "")
             if not name:
                 continue
-            # 在这里利用高德补齐地理缺漏
-            loc = geocode_amap(name, city)
+            # 获取中英文名称，用于精准地理编码（Google用英文，高德用中文）
+            name_zh = item.get("name_zh", name)
+            name_en = item.get("name_en", name)
+            loc = geocode_amap(name, city, name_zh=name_zh, name_en=name_en)
             item["location"] = loc
             final_result += json.dumps(item, ensure_ascii=False) + "\n"
 

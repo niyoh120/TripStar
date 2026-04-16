@@ -33,11 +33,21 @@ def get_map_provider() -> MapProvider:
     return "amap"
 
 
-def geocode_unified(address: str, city: str) -> dict:
+def geocode_unified(address: str, city: str, *, address_zh: str = "", address_en: str = "") -> dict:
     """统一地理编码接口，返回 {"longitude": float, "latitude": float}。
 
-    根据 get_map_provider() 的结果，自动路由到 Google 或高德。
+    根据 get_map_provider() 的结果，自动路由到 Google 或高德，
+    并根据供应商特性自动选择最合适语言的地址：
+    - Google Maps: 优先使用英文地址 (address_en)，对英文地名识别更友好
+    - 高德地图: 优先使用中文地址 (address_zh)，对中文地名识别更准确
+
     如果 Google 失败过一次，后续会自动全部短路降级到高德，不再重复耗时尝试。
+
+    Args:
+        address: 默认地址（任意语言，作为兜底）
+        city: 城市名称
+        address_zh: 中文地址（优先用于高德地图）
+        address_en: 英文地址（优先用于 Google Maps）
     """
     global _google_geo_failed_flag
     provider = get_map_provider()
@@ -46,14 +56,17 @@ def geocode_unified(address: str, city: str) -> dict:
         from .google_map_service import get_google_map_service  # noqa: delay import
         svc = get_google_map_service()
         if svc:
-            loc = svc.geocode(address, city)
+            # Google 对英文地名更友好，优先使用英文地址
+            google_address = address_en or address
+            loc = svc.geocode(google_address, city)
             if loc:
                 return {"longitude": loc.longitude, "latitude": loc.latitude}
         
         # 第一次解析失败，标记为全局不可用
         _google_geo_failed_flag = True
-        print(f"⚠️ [Dispatcher] Google 地理编码失败 (后续景点采用高德): {address}")
+        print(f"⚠️ [Dispatcher] Google 地理编码失败 (后续景点采用高德): {address_en or address}")
 
-    # 高德兜底
+    # 高德兜底 — 高德对中文地名识别更准确，优先使用中文地址
+    amap_address = address_zh or address
     from .xhs_service import _geocode_amap_raw  # noqa: delay import
-    return _geocode_amap_raw(address, city)
+    return _geocode_amap_raw(amap_address, city)
