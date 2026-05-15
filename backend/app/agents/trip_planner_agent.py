@@ -74,18 +74,22 @@ ATTRACTION_AGENT_PROMPT = ""  # 已弃用，景点改走小红书
 WEATHER_AGENT_PROMPT = _build_weather_agent_prompt("amap")
 HOTEL_AGENT_PROMPT = _build_hotel_agent_prompt("amap")
 
-PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点信息和天气信息,生成详细的旅行计划。
+PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点信息和天气信息,生成详细的旅行计划。支持单城市和多城市行程。
 
 请严格按照以下JSON格式返回旅行计划:
 ```json
 {
-  "city": "城市名称",
+  "city": "首个城市名称(兼容字段)",
+  "cities": ["城市1", "城市2"],
   "start_date": "YYYY-MM-DD",
   "end_date": "YYYY-MM-DD",
   "days": [
     {
       "date": "YYYY-MM-DD",
       "day_index": 0,
+      "city": "当天所在城市",
+      "is_transfer_day": false,
+      "transfer_info": "",
       "description": "第1天行程概述",
       "transportation": "交通方式",
       "accommodation": "住宿类型",
@@ -122,6 +126,7 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
   "weather_info": [
     {
       "date": "YYYY-MM-DD",
+      "city": "当天所在城市",
       "day_weather": "晴",
       "night_weather": "多云",
       "day_temp": 25,
@@ -136,22 +141,23 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
     "total_hotels": 1200,
     "total_meals": 480,
     "total_transportation": 200,
+    "total_inter_city_transport": 0,
     "total": 2060
   }
 }
 ```
 
 **⚠️ JSON 格式关键约束（违反将导致系统崩溃）：**
-- budget 中所有费用字段（total_attractions、total_hotels、total_meals、total_transportation、total）必须是**纯数字**，绝对禁止出现算术表达式！
+- budget 中所有费用字段（total_attractions、total_hotels、total_meals、total_transportation、total_inter_city_transport、total）必须是**纯数字**，绝对禁止出现算术表达式！
   - ✅ 正确: "total_attractions": 324
   - ❌ 错误: "total_attractions": 30+54+120+120=324
   - ❌ 错误: "total_attractions": "324元"
 - ticket_price、estimated_cost 等所有价格字段也必须是纯数字，不带单位
 
 **重要提示:**
-1. weather_info数组必须包含每一天的天气信息
+1. weather_info数组必须包含每一天的天气信息，每条记录必须包含 city 字段标明该天所在城市
 2. 温度必须是纯数字(不要带°C等单位)
-3. 每天安排2-3个景点
+3. 每天安排2-3个景点(城际移动日可减少为1-2个)
 4. 考虑景点之间的距离和游览时间
 5. 每天必须包含早中晚三餐
 6. 提供实用的旅行建议
@@ -160,8 +166,14 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
    - 餐饮预估费用(estimated_cost)
    - 酒店预估费用(estimated_cost)
    - 预算汇总(budget)包含各项总费用
-9. **预约信息透传**: 如果景点搜索数据中包含 reservation_required 和 reservation_tips 字段，请务必将它们完整保留在对应景点的JSON中。需要预约的景点请在 description 中也提醒游客提前预约
-8. **景点图片**: 不需要在JSON中填写 image_url 字段，图片由前端根据景点名称自动从小红书获取。
+8. **预约信息透传**: 如果景点搜索数据中包含 reservation_required 和 reservation_tips 字段，请务必将它们完整保留在对应景点的JSON中。需要预约的景点请在 description 中也提醒游客提前预约
+9. **景点图片**: 不需要在JSON中填写 image_url 字段，图片由前端根据景点名称自动从小红书获取。
+10. **多城市行程要求**:
+    - 每个 day 对象中必须包含 "city" 字段标明当天所在城市
+    - 城市切换当天设置 "is_transfer_day": true，并在 "transfer_info" 中**仅给出交通方式建议和大致时长**（如"建议乘坐高铁，约2-3小时"），**禁止编造具体车次、班次号、出发时间、到达时间等不可验证的信息**
+    - 城际移动日的景点数量可适当减少为1-2个
+    - budget 中的 "total_inter_city_transport" 统计城际交通费用(单城市时为0)
+    - "cities" 数组列出所有途经城市(单城市时只有一个元素)
 """
 
 
@@ -410,11 +422,11 @@ class MultiAgentTripPlanner:
         progress_callback: Optional[Callable[[str, str, int], Awaitable[None] | None]] = None
     ) -> TripPlan:
         """
-        使用多智能体协作生成旅行计划（并发优化版）
+        使用多智能体协作生成旅行计划（多城市支持版）
 
-        步骤1-3（景点/天气/酒店）通过 asyncio.gather 并发执行，
-        将耗时从 T1+T2+T3 缩短为 max(T1, T2, T3)。
-        步骤4（行程规划）依赖前三步结果，保持串行。
+        按 request.cities 逐城市搜集景点/天气/酒店信息，
+        然后统一交给 LLM 生成跨城行程。
+        单城市场景下 cities 只有一个元素，行为与原版一致。
 
         Args:
             request: 旅行请求
@@ -423,69 +435,108 @@ class MultiAgentTripPlanner:
             旅行计划
         """
         try:
+            cities = request.cities  # List[CityStay] — 已由 normalize_cities 保证非空
+            total_cities = len(cities)
+            city_names = [cs.city for cs in cities]
+
             print(f"\n{'='*60}")
-            print(f"🚀 开始多智能体协作规划旅行（并发优化模式）...")
-            print(f"目的地: {request.city}")
+            print(f"🚀 开始多智能体协作规划旅行...")
+            print(f"途经城市: {' → '.join(city_names)}")
             print(f"日期: {request.start_date} 至 {request.end_date}")
             print(f"天数: {request.travel_days}天")
             print(f"偏好: {', '.join(request.preferences) if request.preferences else '无'}")
             print(f"{'='*60}\n")
 
-            # ========== 串行阶段: 步骤1-3 依次执行 ==========
-            print("⏳ 依次执行步骤1-3: 搜索景点 -> 查询天气 -> 搜索酒店...")
-
-            # 依次执行,避免多个线程同时启动 uvx 子进程导致资源竞争和超时
-            print("  [1/3] 正在使用小红书服务搜索景点...")
-            await self._emit_progress(progress_callback, "attraction_search", "正在使用小红书搜索景点...", 30)
             from ..services.xhs_service import search_xhs_attractions
             keywords = request.preferences[0] if request.preferences else "景点"
             _lang = (getattr(request, 'language', 'zh') or 'zh').strip().lower().split('-')[0]
-            attraction_response = await asyncio.to_thread(search_xhs_attractions, request.city, keywords, _lang)
-            print(f"📍 景点搜索结果: {attraction_response[:200]}...")
-
-            # 构建各Agent的查询（融入语言上下文）
             _lang_hint = "" if _lang == "zh" else f" Please respond in {'English' if _lang == 'en' else _lang}."
-            weather_query = f"请查询{request.city}的天气信息{_lang_hint}"
-            hotel_query = f"请搜索{request.city}的{request.accommodation}酒店{_lang_hint}"
 
-            print("  [2/3] 正在查询天气...")
-            await self._emit_progress(progress_callback, "weather_search", "正在查询天气信息...", 50)
-            weather_response = await asyncio.to_thread(self.weather_agent.run, weather_query)
-            print(f"🌤️  天气查询结果: {weather_response[:200]}...")
+            # ========== 按城市逐一搜集信息 ==========
+            all_attractions: Dict[str, str] = {}
+            all_weather: Dict[str, str] = {}
+            all_hotels: Dict[str, str] = {}
 
-            # Google 天气降级: 若 Google Weather API 未启用或调用失败，回退到高德天气 HTTP API
-            _weather_fail_keywords = ("无法", "失败", "错误", "error", "unknown", "抱歉", "sorry")
-            if self.map_provider == "google" and any(kw in weather_response.lower() for kw in _weather_fail_keywords):
-                print("  ⚠️ Google 天气查询失败，正在降级到高德天气 API...")
-                try:
-                    weather_response = await self._fallback_amap_weather(request.city)
-                    print(f"  ✅ 高德天气降级成功: {weather_response[:200]}...")
-                except Exception as _wb_err:
-                    print(f"  ❌ 高德天气降级也失败: {_wb_err}")
+            for idx, city_stay in enumerate(cities):
+                city = city_stay.city
+                # 计算当前城市对应的进度区间: 10 ~ 75 之间按城市均分
+                progress_base = int(10 + (idx / total_cities) * 65)
+                progress_step = max(int(65 / total_cities / 3), 3)
+                city_label = f" ({idx+1}/{total_cities})" if total_cities > 1 else ""
 
-            print("  [3/3] 正在搜索酒店...")
-            await self._emit_progress(progress_callback, "hotel_search", "正在搜索酒店推荐...", 70)
-            hotel_response = await asyncio.to_thread(self.hotel_agent.run, hotel_query)
-            print(f"🏨 酒店搜索结果: {hotel_response[:200]}...")
+                # [1] 景点搜索
+                print(f"  [{idx+1}/{total_cities}] 正在搜索 {city} 的景点...")
+                await self._emit_progress(
+                    progress_callback, "attraction_search",
+                    f"正在搜索 {city} 的景点...{city_label}",
+                    progress_base
+                )
+                attraction_response = await asyncio.to_thread(
+                    search_xhs_attractions, city, keywords, _lang
+                )
+                all_attractions[city] = attraction_response
+                print(f"📍 {city} 景点搜索结果: {attraction_response[:150]}...")
 
-            print(f"\n✅ 基础信息搜集完成\n")
+                # [2] 天气查询
+                print(f"  [{idx+1}/{total_cities}] 正在查询 {city} 的天气...")
+                await self._emit_progress(
+                    progress_callback, "weather_search",
+                    f"正在查询 {city} 的天气...{city_label}",
+                    progress_base + progress_step
+                )
+                weather_query = f"请查询{city}的天气信息{_lang_hint}"
+                weather_response = await asyncio.to_thread(self.weather_agent.run, weather_query)
+                print(f"🌤️  {city} 天气查询结果: {weather_response[:150]}...")
 
-            # ========== 串行阶段: 步骤4 整合生成 ==========
-            print("📋 步骤4: 生成行程计划...")
-            await self._emit_progress(progress_callback, "planning", "正在生成旅行计划...", 85)
-            print(
-                f"🧾 规划上下文长度: 景点={len(attraction_response)} 天气={len(weather_response)} 酒店={len(hotel_response)}"
-            )
+                # Google 天气降级
+                _weather_fail_keywords = ("无法", "失败", "错误", "error", "unknown", "抱歉", "sorry")
+                if self.map_provider == "google" and any(kw in weather_response.lower() for kw in _weather_fail_keywords):
+                    print(f"  ⚠️ {city} Google 天气查询失败，降级到高德天气 API...")
+                    try:
+                        weather_response = await self._fallback_amap_weather(city)
+                        print(f"  ✅ {city} 高德天气降级成功: {weather_response[:150]}...")
+                    except Exception as _wb_err:
+                        print(f"  ❌ {city} 高德天气降级也失败: {_wb_err}")
+                all_weather[city] = weather_response
+
+                # [3] 酒店搜索
+                print(f"  [{idx+1}/{total_cities}] 正在搜索 {city} 的酒店...")
+                await self._emit_progress(
+                    progress_callback, "hotel_search",
+                    f"正在搜索 {city} 的酒店...{city_label}",
+                    progress_base + progress_step * 2
+                )
+                hotel_query = f"请搜索{city}的{request.accommodation}酒店{_lang_hint}"
+                hotel_response = await asyncio.to_thread(self.hotel_agent.run, hotel_query)
+                all_hotels[city] = hotel_response
+                print(f"🏨 {city} 酒店搜索结果: {hotel_response[:150]}...")
+
+            print(f"\n✅ 全部 {total_cities} 个城市基础信息搜集完成\n")
+
+            # ========== 统一规划阶段 ==========
+            planning_label = "正在生成多城市行程计划..." if total_cities > 1 else "正在生成旅行计划..."
+            print(f"📋 步骤4: {planning_label}")
+            await self._emit_progress(progress_callback, "planning", planning_label, 85)
+
             planner_response = await self._run_planner_with_retry(
                 request,
-                attraction_response,
-                weather_response,
-                hotel_response,
+                all_attractions,
+                all_weather,
+                all_hotels,
             )
             print(f"行程规划结果: {planner_response[:300]}...\n")
 
             # 解析最终计划
             trip_plan = self._parse_response(planner_response, request)
+
+            # 补全 cities 字段（LLM 可能遗漏）
+            if not trip_plan.cities:
+                trip_plan.cities = city_names
+            # 补全每日 city 字段（单城市场景 LLM 可能遗漏）
+            if total_cities == 1:
+                for day in trip_plan.days:
+                    if not day.city:
+                        day.city = city_names[0]
 
             print(f"{'='*60}")
             print(f"✅ 旅行计划生成完成!")
@@ -516,11 +567,17 @@ class MultiAgentTripPlanner:
     async def _run_planner_with_retry(
         self,
         request: TripRequest,
-        attractions: str,
-        weather: str,
-        hotels: str,
+        attractions: Dict[str, str],
+        weather: Dict[str, str],
+        hotels: Dict[str, str],
     ) -> str:
-        """规划阶段使用更长超时，并在超时后重试一次。"""
+        """规划阶段使用更长超时，并在超时后重试一次。
+        
+        Args:
+            attractions: {city_name: 景点搜索结果文本}
+            weather: {city_name: 天气查询结果文本}
+            hotels: {city_name: 酒店搜索结果文本}
+        """
         timeout = int(os.getenv("TRIP_PLANNER_TIMEOUT", "180"))
         planner_query = self._build_planner_query(request, attractions, weather, hotels)
 
@@ -548,36 +605,96 @@ class MultiAgentTripPlanner:
                 temperature=0.2,
             )
 
-    def _build_planner_query(self, request: TripRequest, attractions: str, weather: str, hotels: str = "") -> str:
-        """构建行程规划查询"""
-        query = f"""请根据以下信息生成{request.city}的{request.travel_days}天旅行计划:
+    def _build_planner_query(
+        self,
+        request: TripRequest,
+        attractions: Dict[str, str],
+        weather: Dict[str, str],
+        hotels: Dict[str, str],
+    ) -> str:
+        """构建行程规划查询（支持多城市）
+        
+        Args:
+            attractions: {city_name: 景点搜索结果文本}
+            weather: {city_name: 天气查询结果文本}
+            hotels: {city_name: 酒店搜索结果文本}
+        """
+        cities = request.cities
+        total_cities = len(cities)
+        is_multi_city = total_cities > 1
+
+        # 构建城市停留计划描述
+        if is_multi_city:
+            cities_info_lines = []
+            day_offset = 0
+            for cs in cities:
+                cities_info_lines.append(
+                    f"- {cs.city}: 停留 {cs.days} 天 (第{day_offset+1}天 ~ 第{day_offset+cs.days}天)"
+                )
+                day_offset += cs.days
+            cities_desc = "\n".join(cities_info_lines)
+            title = f"跨城市旅行计划（{' → '.join(cs.city for cs in cities)}）"
+        else:
+            cities_desc = f"- {cities[0].city}: {cities[0].days} 天"
+            title = f"{cities[0].city}的{request.travel_days}天旅行计划"
+
+        query = f"""请根据以下信息生成{title}:
 
 **基本信息:**
-- 城市: {request.city}
+- 途经城市及天数分配:
+{cities_desc}
+- 总天数: {request.travel_days}天
 - 日期: {request.start_date} 至 {request.end_date}
-- 天数: {request.travel_days}天
 - 交通方式: {request.transportation}
 - 住宿: {request.accommodation}
 - 偏好: {', '.join(request.preferences) if request.preferences else '无'}
-
+"""
+        # 为每个城市附上搜集到的信息
+        for cs in cities:
+            city = cs.city
+            if is_multi_city:
+                query += f"""
+--- {city} ({cs.days}天) ---
+**{city} 景点信息:**
+{attractions.get(city, '无')}
+**{city} 天气信息:**
+{weather.get(city, '无')}
+**{city} 酒店信息:**
+{hotels.get(city, '无')}
+"""
+            else:
+                query += f"""
 **景点信息:**
-{attractions}
+{attractions.get(city, '无')}
 
 **天气信息:**
-{weather}
+{weather.get(city, '无')}
 
 **酒店信息:**
-{hotels}
+{hotels.get(city, '无')}
+"""
 
+        query += """
 **要求:**
-1. 每天安排2-3个景点
+1. 每天安排2-3个景点(城际移动日可减少为1-2个)
 2. 每天必须包含早中晚三餐
 3. 每天推荐一个具体的酒店(从酒店信息中选择)
-3. 考虑景点之间的距离和交通方式
-4. 返回完整的JSON格式数据
-5. 景点的经纬度坐标要真实准确
-6. 如果天气或酒店信息不足，请基于保守、通用的旅行建议补齐，但不要输出“无法查询”之类的解释文字
+4. 考虑景点之间的距离和交通方式
+5. 返回完整的JSON格式数据
+6. 景点的经纬度坐标要真实准确
+7. 如果天气或酒店信息不足，请基于保守、通用的旅行建议补齐，但不要输出"无法查询"之类的解释文字
 """
+        if is_multi_city:
+            query += """
+**多城市特殊要求:**
+1. 每个 day 对象中必须包含 "city" 字段标明当天所在城市
+2. 城市切换当天标记 "is_transfer_day": true, 并在 "transfer_info" 中说明城际交通方式和预计时长
+3. 城际移动日的景点数量可适当减少为 1-2 个
+4. budget 中增加 "total_inter_city_transport" 字段统计城际交通费用
+5. 景点顺序要考虑同城市内的地理位置关系
+6. "cities" 数组列出所有途经城市名称
+"""
+
         if request.free_text_input:
             query += f"\n**额外要求:** {request.free_text_input}"
 

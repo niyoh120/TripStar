@@ -50,7 +50,7 @@ _I18N: Dict[str, Dict[str, str]] = {
         "breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "小吃",
         # 预算子项
         "budget_attraction": "景点", "budget_hotel": "酒店",
-        "budget_meal": "餐饮", "budget_transport": "交通",
+        "budget_meal": "餐饮", "budget_transport": "交通", "budget_inter_city": "城际交通",
     },
     "en": {
         "cat_city": "City", "cat_day": "Schedule", "cat_attraction": "Attraction",
@@ -65,7 +65,7 @@ _I18N: Dict[str, Dict[str, str]] = {
         "total_budget": "Total Budget ¥{total}",
         "breakfast": "Breakfast", "lunch": "Lunch", "dinner": "Dinner", "snack": "Snack",
         "budget_attraction": "Attractions", "budget_hotel": "Hotels",
-        "budget_meal": "Dining", "budget_transport": "Transport",
+        "budget_meal": "Dining", "budget_transport": "Transport", "budget_inter_city": "Inter-city",
     },
     "ja": {
         "cat_city": "都市", "cat_day": "スケジュール", "cat_attraction": "観光地",
@@ -80,7 +80,7 @@ _I18N: Dict[str, Dict[str, str]] = {
         "total_budget": "総予算 ¥{total}",
         "breakfast": "朝食", "lunch": "昼食", "dinner": "夕食", "snack": "軽食",
         "budget_attraction": "観光地", "budget_hotel": "ホテル",
-        "budget_meal": "グルメ", "budget_transport": "交通",
+        "budget_meal": "グルメ", "budget_transport": "交通", "budget_inter_city": "都市間交通",
     },
 }
 
@@ -155,15 +155,34 @@ def build_knowledge_graph(trip_plan: TripPlan, language: str = "zh") -> Dict[str
     cat_budget = _t("cat_budget", lang)
     cat_preference = _t("cat_preference", lang)
 
-    # ========== 1. 城市中心节点 ==========
-    city_id = f"city_{trip_plan.city}"
-    add_node(city_id, trip_plan.city, cat_city, f"{trip_plan.start_date} ~ {trip_plan.end_date}")
+    # ========== 1. 城市节点（支持多城市） ==========
+    cities_list = trip_plan.cities or [trip_plan.city]
+    city_node_ids: Dict[str, str] = {}
 
-    # ========== 2. 每日节点 ==========
+    if len(cities_list) > 1:
+        # 多城市: 创建旅途根节点 + 各城市子节点
+        root_id = "trip_root"
+        root_name = " → ".join(cities_list)
+        add_node(root_id, root_name, cat_city, f"{trip_plan.start_date} ~ {trip_plan.end_date}")
+        for city_name in cities_list:
+            cid = f"city_{city_name}"
+            add_node(cid, city_name, cat_city, "")
+            add_edge(root_id, cid, _t("edge_itinerary", lang))
+            city_node_ids[city_name] = cid
+    else:
+        # 单城市: 保持原逻辑
+        root_id = f"city_{trip_plan.city}"
+        add_node(root_id, trip_plan.city, cat_city, f"{trip_plan.start_date} ~ {trip_plan.end_date}")
+        city_node_ids[trip_plan.city] = root_id
+
+    # ========== 2. 每日节点（挂到对应城市下） ==========
     for day in trip_plan.days:
         day_id = f"day_{day.day_index}"
+        day_city = getattr(day, 'city', '') or trip_plan.city
+        parent_id = city_node_ids.get(day_city, root_id)
+
         add_node(day_id, _t("day_n", lang, n=day.day_index + 1), cat_day, day.date)
-        add_edge(city_id, day_id, _t("edge_itinerary", lang))
+        add_edge(parent_id, day_id, _t("edge_itinerary", lang))
 
         # ---- 景点 ----
         for i, attr in enumerate(day.attractions):
@@ -217,13 +236,14 @@ def build_knowledge_graph(trip_plan: TripPlan, language: str = "zh") -> Dict[str
         b = trip_plan.budget
         budget_id = "budget_total"
         add_node(budget_id, _t("total_budget", lang, total=b.total), cat_budget, "")
-        add_edge(city_id, budget_id, _t("edge_budget", lang))
+        add_edge(root_id, budget_id, _t("edge_budget", lang))
 
         for label_key, value in [
             ("budget_attraction", b.total_attractions),
             ("budget_hotel", b.total_hotels),
             ("budget_meal", b.total_meals),
             ("budget_transport", b.total_transportation),
+            ("budget_inter_city", b.total_inter_city_transport),
         ]:
             if value:
                 label = _t(label_key, lang)
@@ -237,7 +257,7 @@ def build_knowledge_graph(trip_plan: TripPlan, language: str = "zh") -> Dict[str
         # 截断过长文本
         sug_text = trip_plan.overall_suggestions[:30] + "..." if len(trip_plan.overall_suggestions) > 30 else trip_plan.overall_suggestions
         add_node(sug_id, sug_text, cat_preference, trip_plan.overall_suggestions)
-        add_edge(city_id, sug_id, _t("edge_suggestion", lang))
+        add_edge(root_id, sug_id, _t("edge_suggestion", lang))
 
     return {
         "nodes": nodes,

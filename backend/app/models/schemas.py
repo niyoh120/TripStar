@@ -1,15 +1,22 @@
 """数据模型定义"""
 
 from typing import List, Optional, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date
 
 
 # ============ 请求模型 ============
 
+class CityStay(BaseModel):
+    """单城市停留配置"""
+    city: str = Field(..., description="城市名称")
+    days: int = Field(..., description="在该城市停留天数", ge=1, le=15)
+
+
 class TripRequest(BaseModel):
     """旅行规划请求"""
-    city: str = Field(..., description="目的地城市", example="北京")
+    city: str = Field(default="", description="目的地城市(单城市兼容)", example="北京")
+    cities: List[CityStay] = Field(default=[], description="多城市行程配置")
     start_date: str = Field(..., description="开始日期 YYYY-MM-DD", example="2025-06-01")
     end_date: str = Field(..., description="结束日期 YYYY-MM-DD", example="2025-06-03")
     travel_days: int = Field(..., description="旅行天数", ge=1, le=30, example=3)
@@ -18,14 +25,24 @@ class TripRequest(BaseModel):
     preferences: List[str] = Field(default=[], description="旅行偏好标签", example=["历史文化", "美食"])
     free_text_input: Optional[str] = Field(default="", description="额外要求", example="希望多安排一些博物馆")
     language: Optional[str] = Field(default="zh", description="输出语言(zh/en/ja)", example="en")
-    
+
+    @model_validator(mode='after')
+    def normalize_cities(self):
+        """兼容处理: 如果只填了 city 没填 cities, 自动转换"""
+        if not self.cities and self.city:
+            self.cities = [CityStay(city=self.city, days=self.travel_days)]
+        if self.cities and not self.city:
+            self.city = self.cities[0].city
+        return self
+
     class Config:
         json_schema_extra = {
             "example": {
                 "city": "北京",
+                "cities": [{"city": "北京", "days": 2}, {"city": "西安", "days": 3}],
                 "start_date": "2025-06-01",
-                "end_date": "2025-06-03",
-                "travel_days": 3,
+                "end_date": "2025-06-05",
+                "travel_days": 5,
                 "transportation": "公共交通",
                 "accommodation": "经济型酒店",
                 "preferences": ["历史文化", "美食"],
@@ -101,6 +118,9 @@ class DayPlan(BaseModel):
     """单日行程"""
     date: str = Field(..., description="日期 YYYY-MM-DD")
     day_index: int = Field(..., description="第几天(从0开始)")
+    city: str = Field(default="", description="当日所在城市")
+    is_transfer_day: bool = Field(default=False, description="是否为城际移动日")
+    transfer_info: Optional[str] = Field(default="", description="城际交通信息")
     description: str = Field(..., description="当日行程描述")
     transportation: str = Field(..., description="交通方式")
     accommodation: str = Field(..., description="住宿")
@@ -112,6 +132,7 @@ class DayPlan(BaseModel):
 class WeatherInfo(BaseModel):
     """天气信息"""
     date: str = Field(..., description="日期 YYYY-MM-DD")
+    city: str = Field(default="", description="所在城市")
     day_weather: str = Field(default="", description="白天天气")
     night_weather: str = Field(default="", description="夜间天气")
     day_temp: Union[int, str] = Field(default=0, description="白天温度")
@@ -141,12 +162,14 @@ class Budget(BaseModel):
     total_hotels: int = Field(default=0, description="酒店总费用")
     total_meals: int = Field(default=0, description="餐饮总费用")
     total_transportation: int = Field(default=0, description="交通总费用")
+    total_inter_city_transport: int = Field(default=0, description="城际交通总费用")
     total: int = Field(default=0, description="总费用")
 
 
 class TripPlan(BaseModel):
     """旅行计划"""
-    city: str = Field(..., description="目的地城市")
+    city: str = Field(..., description="主城市(兼容)/首个城市")
+    cities: List[str] = Field(default=[], description="所有途经城市列表")
     start_date: str = Field(..., description="开始日期")
     end_date: str = Field(..., description="结束日期")
     days: List[DayPlan] = Field(..., description="每日行程")

@@ -159,19 +159,24 @@ def _build_history_item(task_id: str, payload: Dict[str, Any], updated_at: str) 
     request_payload = payload.get("request_payload") or {}
 
     city = plan.get("city") or request_payload.get("city") or ""
+    cities = plan.get("cities") or []
     start_date = plan.get("start_date") or request_payload.get("start_date") or ""
     end_date = plan.get("end_date") or request_payload.get("end_date") or ""
     days = plan.get("days") or []
     travel_days = request_payload.get("travel_days") or (len(days) if isinstance(days, list) else 0)
     overall_suggestions = plan.get("overall_suggestions") or result.get("message") or ""
 
-    if not city:
+    if not city and not cities:
         return None
+
+    # 多城市时 city 显示为 "北京 → 西安" 形式
+    display_city = ' → '.join(cities) if len(cities) > 1 else city
 
     return {
         "plan_id": payload.get("plan_id", task_id),
         "task_id": task_id,
-        "city": city,
+        "city": display_city,
+        "cities": cities,
         "start_date": start_date,
         "end_date": end_date,
         "travel_days": travel_days,
@@ -285,9 +290,10 @@ async def plan_trip(request: TripRequest):
     _tasks[task_id]["request_payload"] = request.model_dump(mode="json")
     _persist_task_state(task_id, _tasks[task_id])
 
+    _city_display = ' → '.join(cs.city for cs in request.cities) if request.cities else request.city
     print(f"\n{'=' * 60}")
     print(f"📥 收到旅行规划请求 (task_id={task_id}):")
-    print(f"   城市: {request.city}")
+    print(f"   城市: {_city_display}")
     print(f"   日期: {request.start_date} - {request.end_date}")
     print(f"   天数: {request.travel_days}")
     print(f"{'=' * 60}\n")
